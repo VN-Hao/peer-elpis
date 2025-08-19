@@ -57,7 +57,7 @@ class ChatApp(QWidget):
         right_layout = QVBoxLayout(right_frame)
 
         # Avatar
-        self.avatar_widget = AvatarWidget()
+        self.avatar_widget = AvatarWidget("avatar/ANIYA/1.png")
         right_layout.addWidget(self.avatar_widget)
 
         # Volume control
@@ -103,12 +103,12 @@ class ChatApp(QWidget):
         user_text = self.input_field.text().strip()
         if not user_text:
             return
-        self.add_message(f"{USER_NAME}: {user_text}", "user")
+        self.add_message(f"{user_text}", "user")
         self.input_field.clear()
 
         # Bot response
         bot_reply = get_bot_response(user_text)
-        self.add_message(f"{BOT_NAME}: {bot_reply}", "bot")
+        self.add_message(f"{bot_reply}", "bot")
 
     def change_volume(self, value):
         """Adjust avatar TTS volume from slider"""

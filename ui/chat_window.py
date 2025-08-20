@@ -45,6 +45,10 @@ class ChatApp(QWidget):
         input_layout = QHBoxLayout()
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Type in...")
+
+        # ✅ Trigger send when pressing Enter
+        self.input_field.returnPressed.connect(self.send_message)
+
         self.send_button = QPushButton("Send")
         self.send_button.clicked.connect(self.send_message)
         input_layout.addWidget(self.input_field)

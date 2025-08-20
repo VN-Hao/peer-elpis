@@ -1,4 +1,3 @@
-# avatar_widget_static.py
 from PyQt5.QtWidgets import QLabel, QFrame, QVBoxLayout
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
@@ -19,12 +18,10 @@ class AvatarWidget(QFrame):
         self.avatar_label.setPixmap(pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self.layout.addWidget(self.avatar_label)
 
-        # Default TTS settings
         self.volume = volume
         self.rate = rate
 
     def speak(self, text):
-        # Run TTS in a separate thread
         threading.Thread(target=self._speak_thread, args=(text,), daemon=True).start()
 
     def _speak_thread(self, text):

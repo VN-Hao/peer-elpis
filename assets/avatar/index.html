@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Live2D Avatar Loader</title>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+
+<script>
+// Robust loader for Live2D core + pixi adapter.
+function loadScript(src, fallback) {
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => { console.log('Loaded', src); resolve(s); };
+        s.onerror = (ev) => {
+            console.warn('Failed to load', src, ev);
+            if (fallback && s.src !== fallback) {
+                console.log('Falling back to', fallback);
+                s.src = fallback;
+                return;
+            }
+            reject(new Error('Failed to load ' + src));
+        };
+        document.head.appendChild(s);
+    });
+}
+
+// Diagnostic hooks: log fetch() and WebAssembly.instantiate() calls to reveal which .wasm is requested.
+(function(){
+    try {
+        const _fetch = window.fetch;
+        window.fetch = function(resource, init){
+            try { console.log('[diag] fetch()', resource); } catch(e){}
+            return _fetch.apply(this, arguments);
+        };
+    } catch(e){}
+
+    try {
+        if (window.WebAssembly && window.WebAssembly.instantiate) {
+            const _instantiate = window.WebAssembly.instantiate;
+            window.WebAssembly.instantiate = function(bufferSource, importObject){
+                try { console.log('[diag] WebAssembly.instantiate called', bufferSource); } catch(e){}
+                return _instantiate.apply(this, arguments);
+            };
+        }
+    } catch(e){}
+})();
+
+function waitForCore(timeout = 10000) {
+    const start = Date.now();
+    return new Promise((resolve, reject) => {
+        const check = () => {
+            // Common global names used by different core builds:
+            if (window.CubismFramework) return resolve(window.CubismFramework);
+            if (window.Live2DCubismCore) return resolve(window.Live2DCubismCore);
+            if (window.Live2DCubismCore && window.Live2DCubismCore.CubismFramework) return resolve(window.Live2DCubismCore.CubismFramework);
+            if (window.Live2D) return resolve(window.Live2D);
+            if (Date.now() - start > timeout) return reject(new Error('Cubism core not found within timeout'));
+            requestAnimationFrame(check);
+        };
+        check();
+    });
+}
+
+async function bootLive2D() {
+    try {
+        // Prefer local packaged min file first (copy from SDK Core), then CDN, then local wrapper.
+        try {
+            await loadScript('live2dcubismcore.min.js');
+        } catch (e) {
+            console.warn('Local live2dcubismcore.min.js not found or failed, trying CDN...', e);
+            await loadScript('https://cdn.jsdelivr.net/gh/live2d/CubismWeb@latest/dist/live2dcubismcore.min.js', 'live2dcubismcore.js');
+        }
+
+        const core = await waitForCore(15000);
+        // Normalize global: some builds use Live2DCubismCore, some export CubismFramework.
+        if (!window.CubismFramework) {
+            if (window.Live2DCubismCore) {
+                window.CubismFramework = window.Live2DCubismCore;
+            } else if (core && core.CubismFramework) {
+                window.CubismFramework = core.CubismFramework;
+            } else {
+                window.CubismFramework = core;
+            }
+        }
+        console.log('Cubism core detected:', Object.keys(window.CubismFramework || {}).slice(0,10));
+
+        // Load PIXI Live2D adapter
+        await loadScript('https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js', 'cubism4.min.js');
+        console.log('pixi-live2d-display ready:', !!(PIXI && PIXI.live2d));
+
+        // If startApp is defined (see body script), call it now.
+        if (typeof startApp === 'function') startApp();
+    } catch (err) {
+        console.error('Cubism startup error:', err);
+        console.error('Check DevTools → Network for live2dcubismcore.js/.wasm and any CORS or MIME errors. Also ensure you serve over http(s), not file://.');
+    }
+}
+
+// Start boot process immediately.
+bootLive2D();
+</script>
+
+<style>
+html, body { margin: 0; padding: 0; height: 100%; background: #ddd; overflow: hidden; }
+canvas { width: 100%; height: 100%; display: block; }
+/* Avatar container keeps a fixed portrait aspect ratio so the avatar box doesn't stretch */
+#avatar-root { width: 100%; max-width: 100%; aspect-ratio: 3 / 4; display: block; background: #e9e9f0; border-radius: 6px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+
+<script>
+function startApp() {
+    // Create a fixed-aspect container and canvas so the avatar box keeps a consistent ratio.
+    const root = document.createElement('div');
+    root.id = 'avatar-root';
+    root.style.margin = '0 auto';
+    root.style.padding = '8px';
+    // Make body a flex container to center the avatar root if page is larger
+    document.body.style.display = 'flex';
+    document.body.style.alignItems = 'center';
+    document.body.style.justifyContent = 'center';
+    document.body.appendChild(root);
+
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    canvas.style.background = 'transparent';
+    root.appendChild(canvas);
+
+    // Initialize PIXI with the container size (will be kept in sync by ResizeObserver)
+    const app = new PIXI.Application({
+            view: canvas,
+            autoStart: true,
+            backgroundAlpha: 0,
+            width: Math.max(200, root.clientWidth),
+            height: Math.max(200, root.clientHeight),
+    });
+
+    // Resize renderer to match container and re-layout model
+    function resizeToRoot() {
+        const w = Math.max(1, root.clientWidth);
+        const h = Math.max(1, root.clientHeight);
+        app.renderer.resize(w, h);
+        if (typeof window.avatarModel === 'object' && window.avatarModel !== null) {
+            try { if (typeof window._layoutModel === 'function') window._layoutModel(); } catch(e){}
+        }
+    }
+
+    // Observe root size changes and update renderer accordingly
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(resizeToRoot);
+        ro.observe(root);
+        // initial sync
+        resizeToRoot();
+    } else {
+        // fallback to window resize
+        window.addEventListener('resize', resizeToRoot);
+        resizeToRoot();
+    }
+
+  // Get avatar folder from URL query, default "ANIYA"
+  function getAvatarName() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("avatar") || "ANIYA";
+  }
+  const avatarName = getAvatarName();
+  const modelURL = `${avatarName}/${avatarName}.model3.json`;
+
+  if (!PIXI.live2d || !PIXI.live2d.Live2DModel) {
+    console.error('pixi-live2d-display not available:', !!PIXI.live2d);
+    return;
+  }
+
+    PIXI.live2d.Live2DModel.from(modelURL).then(model => {
+        app.stage.addChild(model);
+
+        // Use model local bounds to compute a fitting scale/pivot so the face is centered and not cropped.
+    function layoutModel() {
+            try {
+                const bounds = model.getLocalBounds();
+
+        // Read view parameter (optional). If view=upper, we crop to upper body.
+        const params = new URLSearchParams(window.location.search);
+        const viewMode = params.get('view') || '';
+
+                // Desired fraction of canvas height the model should occupy (tweak as needed)
+                // For upper-body view we want a tighter crop so head+chest fill the area.
+                // Use special small-canvas tuning so embedded webview (thumbnail) looks like the reference.
+                const isSmallCanvas = Math.min(app.renderer.width, app.renderer.height) < 420;
+                const targetHeightFraction = (viewMode === 'upper') ? (isSmallCanvas ? 0.98 : 0.88) : 0.68;
+
+                // Compute scale to fit target fraction of canvas height, limit by width as well
+                // When in upper view allow a wider width cap (and even wider on small canvases)
+                const scaleY = (app.renderer.height * targetHeightFraction) / bounds.height;
+                const widthCap = (viewMode === 'upper') ? (isSmallCanvas ? 0.98 : 0.9) : 0.6;
+                const scaleX = (app.renderer.width * widthCap) / bounds.width;
+                // Base scale to fit the target area
+                let baseScale = Math.min(scaleX, scaleY);
+                if (!isFinite(baseScale) || baseScale <= 0) baseScale = 0.5;
+
+                // Aggressive extra zoom for upper view on small canvases so face and lips are clearly visible
+                const extraZoom = (viewMode === 'upper') ? (isSmallCanvas ? 1.65 : 1.35) : 1.0;
+                const newScale = Math.abs(baseScale * extraZoom);
+                model.scale.set(newScale, newScale);
+
+                // Choose pivot so the face area sits above model center.
+                // Move pivot further up on small canvases to prioritize the face area
+                const pivotYFactor = (viewMode === 'upper') ? (isSmallCanvas ? 0.16 : 0.26) : 0.36;
+                const pivotX = bounds.x + bounds.width / 2;
+                const pivotY = bounds.y + bounds.height * pivotYFactor;
+                model.pivot.set(pivotX, pivotY);
+
+                // Position model at canvas center with a nudge so chest sits lower and face is centered
+                // Reduce the small-canvas nudge so the model moves upward (face more centered/visible)
+                const yNudgeFactor = (viewMode === 'upper') ? (isSmallCanvas ? 0.56 : 0.60) : 0.48;
+                model.position.set(app.renderer.width / 2, app.renderer.height * yNudgeFactor);
+            } catch (e) {
+                console.warn('layoutModel error', e);
+            }
+        }
+
+                // Expose layoutModel for external calls (resize handler) and run once after a frame.
+                window._layoutModel = layoutModel;
+                requestAnimationFrame(() => {
+                    layoutModel();
+                    // store global ref
+                    window.avatarModel = model;
+                });
+
+        // Re-layout on resize (debounced)
+        function onResize() {
+            clearTimeout(window._avatarLayoutTimeout);
+            window._avatarLayoutTimeout = setTimeout(() => layoutModel(), 80);
+        }
+        window.addEventListener('resize', onResize);
+  }).catch(err => console.error("Failed to load model:", err));
+
+  // Lip-sync stub
+  window.setLipSyncText = text => {
+      if (!window.avatarModel) return;
+      let t = 0;
+      const id = setInterval(() => {
+          if (t > text.length * 2) { clearInterval(id); return; }
+          try { window.avatarModel.internalModel.coreModel.setParameterValueById("ParamMouthOpenY", Math.random()); } catch(e) {}
+          t++;
+      }, 100);
+  };
+}
+</script>
+
+</body>
+</html>

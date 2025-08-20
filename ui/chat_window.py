@@ -1,22 +1,32 @@
+import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame,
-    QLineEdit, QPushButton, QLabel, QSlider
+    QLineEdit, QPushButton, QLabel, QSlider, QSizePolicy, QSplitter
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 from .message_widget import MessageWidget
 from .avatar_widget import AvatarWidget
 from bot.llm_bot import get_bot_response
+from controllers.avatar_controller import AvatarController
+from services.tts_service import TTSSvc
+from services.llm_service import LLMSvc
 
 USER_NAME = "Hao"
 BOT_NAME = "Elpis"
 
 class ChatApp(QWidget):
-    def __init__(self):
+    def __init__(self, avatar_controller: AvatarController = None, tts: TTSSvc = None, llm: LLMSvc = None):
         super().__init__()
         self.setWindowTitle("Chatbot App")
         self.setGeometry(200, 200, 900, 500)
         self.setStyleSheet("background-color: #f0f0f0;")
+
+        # Dependency injection with sensible defaults to keep runtime identical
+        self._tts = tts or TTSSvc()
+        self._llm = llm or LLMSvc()
+        self._avatar_controller = avatar_controller
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -53,42 +63,79 @@ class ChatApp(QWidget):
         input_layout.addWidget(self.send_button)
         chat_layout.addLayout(input_layout)
 
-        # Right side (avatar + controls)
+        # Right side (avatar + controls) inside a splitter so user can drag to resize
         right_frame = QFrame()
-        right_frame.setFixedWidth(250)
+        right_frame.setMinimumWidth(160)
         right_layout = QVBoxLayout(right_frame)
+        # Remove inner margins so child widgets can span the full frame width
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        # keep controls top-aligned and compact
+        right_layout.setAlignment(Qt.AlignTop)
+        right_layout.setSpacing(6)
 
-        # Avatar
-        self.avatar_widget = AvatarWidget("avatar/ANIYA/1.png")
-        right_layout.addWidget(self.avatar_widget)
+        # Top area: avatar and volume controls centered horizontally
+        top_widget = QFrame()
+        top_layout = QVBoxLayout(top_widget)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setAlignment(Qt.AlignHCenter)
+        top_layout.setSpacing(6)
 
-        # Windows 11 style volume control (mute button on left)
+        # Avatar (keep natural size)
+        # If an external AvatarController wasn't provided, create one from AvatarWidget
+        if self._avatar_controller is None:
+            self.avatar_widget = AvatarWidget(avatar_name="ANIYA")
+            self._avatar_controller = AvatarController(self.avatar_widget)
+        else:
+            # extract widget for layouting if controller wraps one
+            self.avatar_widget = getattr(self._avatar_controller, 'avatar_widget', None)
+
+        if self.avatar_widget is not None:
+            self.avatar_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            top_layout.addWidget(self.avatar_widget, alignment=Qt.AlignHCenter)
+
+        # Prepare icon paths (resolve relative to repository root so cwd doesn't matter)
+        icons_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'icons'))
+        play_icon_path = os.path.join(icons_dir, 'play.png')
+        mute_icon_path = os.path.join(icons_dir, 'mute.png')
+        self.icon_play = QIcon(play_icon_path) if os.path.exists(play_icon_path) else QIcon()
+        self.icon_mute = QIcon(mute_icon_path) if os.path.exists(mute_icon_path) else QIcon()
+
+    # Windows 11 style volume control (mute button on left)
         volume_layout = QHBoxLayout()
-
-        # Mute button
         self.mute_button = QPushButton()
         self.mute_button.setCheckable(True)
         self.mute_button.setFixedSize(30, 30)
-        self.mute_button.setIcon(QIcon("assets/icons/play.png"))  # show speaker icon at start
+        # show speaker icon at start (use resolved absolute path)
+        self.mute_button.setIcon(self.icon_play)
         self.mute_button.clicked.connect(self.toggle_mute)
         volume_layout.addWidget(self.mute_button)
 
-        # Volume slider
+        # Volume slider (fixed length) and centered under avatar
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(100)
+        self.volume_slider.setFixedWidth(160)
         self.volume_slider.valueChanged.connect(self.change_volume)
         volume_layout.addWidget(self.volume_slider)
 
-        right_layout.addLayout(volume_layout)
+        top_layout.addLayout(volume_layout)
+        right_layout.addWidget(top_widget)
 
-        # Reserved space (future file management)
+        # Reserved space (future file management) — put below avatar and volume in the right column
         reserved_label = MessageWidget("Reserved space for file management", sender="system")
-        reserved_label.setFixedHeight(150)
-        right_layout.addWidget(reserved_label)
+        # Allow reserved area to fill full column width and height
+        reserved_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        reserved_label.setMaximumWidth(16777215)
+        reserved_label.setContentsMargins(8, 8, 8, 8)
+        right_layout.addWidget(reserved_label, stretch=1)
 
-        main_layout.addWidget(chat_frame, stretch=3)
-        main_layout.addWidget(right_frame, stretch=1)
+        # Put chat and right frames into a horizontal splitter so the user can drag the divider
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(chat_frame)
+        splitter.addWidget(right_frame)
+        # Set sensible initial sizes: chat larger than the right column
+        splitter.setSizes([650, 250])
+        main_layout.addWidget(splitter)
 
     def add_message(self, text, sender="user"):
         msg = MessageWidget(text, sender)
@@ -105,7 +152,13 @@ class ChatApp(QWidget):
         )
 
         if sender == "bot":
-            self.avatar_widget.speak(text)
+            # Use controller to speak so logic is centralized
+            try:
+                self._tts.speak(text)
+            except Exception:
+                # fallback to avatar widget speak if available
+                if hasattr(self, 'avatar_widget') and self.avatar_widget:
+                    self.avatar_widget.speak(text)
 
     def send_message(self):
         user_text = self.input_field.text().strip()
@@ -120,16 +173,21 @@ class ChatApp(QWidget):
     def change_volume(self, value):
         """Adjust volume and update mute button automatically."""
         volume = value / 100.0
-        self.avatar_widget.set_volume(volume)
+        # route volume change through service/controller
+        try:
+            self._tts.set_volume(volume)
+        except Exception:
+            if hasattr(self, 'avatar_widget') and self.avatar_widget:
+                self.avatar_widget.set_volume(volume)
 
         if value == 0:
             if not self.mute_button.isChecked():
                 self.mute_button.setChecked(True)
-                self.mute_button.setIcon(QIcon("assets/icons/mute.png"))
+                self.mute_button.setIcon(self.icon_mute)
         else:
             if self.mute_button.isChecked():
                 self.mute_button.setChecked(False)
-                self.mute_button.setIcon(QIcon("assets/icons/play.png"))
+                self.mute_button.setIcon(self.icon_play)
 
     def toggle_mute(self):
         """Toggle mute/unmute when button is clicked."""
@@ -138,8 +196,8 @@ class ChatApp(QWidget):
             self._last_volume = self.volume_slider.value() if self.volume_slider.value() > 0 else getattr(self, "_last_volume", 100)
             self.volume_slider.setValue(0)
             self.avatar_widget.set_volume(0.0)
-            self.mute_button.setIcon(QIcon("assets/icons/mute.png"))
+            self.mute_button.setIcon(self.icon_mute)
         else:
             self.volume_slider.setValue(getattr(self, "_last_volume", 100))
             self.avatar_widget.set_volume(self.volume_slider.value() / 100.0)
-            self.mute_button.setIcon(QIcon("assets/icons/play.png"))
+            self.mute_button.setIcon(self.icon_play)

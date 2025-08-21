@@ -1,0 +1,12 @@
+# UI and Core
+PyQt5==5.15.9
+PyQtWebEngine==5.15.6  # Required for web-based avatar
+pyttsx3==2.90
+
+# HTTP and API
+requests==2.31.0
+openai==1.3.0
+google-generativeai==0.2.2
+
+# Utils
+python-dotenv==1.0.0

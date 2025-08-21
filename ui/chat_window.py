@@ -3,10 +3,11 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame,
     QLineEdit, QPushButton, QLabel, QSlider, QSizePolicy, QSplitter
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon
 from .message_widget import MessageWidget
 from .avatar_widget import AvatarWidget
+from .voice_setup import VoiceSetup
 from bot.llm_bot import get_bot_response
 from controllers.avatar_controller import AvatarController
 from services.tts_service import TTSSvc
@@ -30,7 +31,29 @@ class ChatApp(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
-        main_layout = QHBoxLayout(self)
+        # Use a stacked approach: voice setup shown first, then chat UI
+        self._main_layout = QHBoxLayout(self)
+
+        self._voice_setup = VoiceSetup(tts_service=self._tts)
+        self._voice_setup.finished.connect(self._on_voice_setup_finished)
+
+        # By default show the voice setup occupying the whole window; when done show chat layout below
+        self._main_layout.addWidget(self._voice_setup)
+
+    def _on_voice_setup_finished(self, ok: bool):
+        """Called when VoiceSetup signals finished; replace setup UI with the chat UI."""
+        if not ok:
+            return
+        try:
+            # remove the setup widget
+            self._voice_setup.setParent(None)
+        except Exception:
+            pass
+        # build the main chat UI into the stored layout
+        self._build_chat_ui()
+
+    def _build_chat_ui(self):
+        main_layout = self._main_layout
 
         # Left side (chat)
         chat_frame = QFrame()
@@ -51,6 +74,9 @@ class ChatApp(QWidget):
         self.scroll_layout.setAlignment(Qt.AlignTop)
         self.scroll_area.setWidget(self.scroll_content)
         chat_layout.addWidget(self.scroll_area)
+        
+        # Store reference to current bot message for typing animation
+        self.current_bot_message = None
 
         # Input field
         input_layout = QHBoxLayout()
@@ -146,29 +172,42 @@ class ChatApp(QWidget):
         else:
             h_layout.addWidget(msg)
             h_layout.addStretch()
+            self.current_bot_message = msg
+            
         self.scroll_layout.addLayout(h_layout)
         self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
         )
 
         if sender == "bot":
-            # Use controller to speak so logic is centralized
+            # Use controller to speak with typing animation
             try:
-                self._tts.speak(text)
+                self._tts.speak(text, typing_callback=self._update_bot_message)
             except Exception:
                 # fallback to avatar widget speak if available
                 if hasattr(self, 'avatar_widget') and self.avatar_widget:
                     self.avatar_widget.speak(text)
+                    
+    def _update_bot_message(self, text, is_complete):
+        """Callback to update the bot's message during typing/speech."""
+        if self.current_bot_message:
+            # Use the thread-safe method to update text
+            self.current_bot_message.safe_set_text(text, is_complete)
+            # Schedule scroll update on the main thread
+            self.scroll_area.verticalScrollBar().setValue(
+                self.scroll_area.verticalScrollBar().maximum()
+            )
 
     def send_message(self):
         user_text = self.input_field.text().strip()
         if not user_text:
             return
-        self.add_message(f"{user_text}", "user")
+        self.add_message(user_text, "user")
         self.input_field.clear()
 
+        # Start with empty bot message to show typing animation
         bot_reply = get_bot_response(user_text)
-        self.add_message(f"{bot_reply}", "bot")
+        self.add_message(bot_reply, "bot")
 
     def change_volume(self, value):
         """Adjust volume and update mute button automatically."""

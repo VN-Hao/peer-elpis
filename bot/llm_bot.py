@@ -1,13 +1,13 @@
 from dotenv import load_dotenv
 import os
-from google import genai
+import google.generativeai as genai
 
 # Load environment variables from .env
 load_dotenv()
 GEN_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Configure Gemini API
-client = genai.Client(api_key=GEN_API_KEY)
+genai.configure(api_key=GEN_API_KEY)
 
 conversation_history = []
 
@@ -21,10 +21,8 @@ def get_bot_response(user_text: str) -> str:
     prompt = "\n".join(conversation_history) + "\nAssistant:"
 
     # Generate response
-    response = client.models.generate_content(
-        model="models/gemini-2.5-flash",  # pick a valid model
-        contents=prompt
-    )
+    model = genai.GenerativeModel(model_name='gemini-2.5-flash')
+    response = model.generate_content(prompt)
 
     # Extract text
     bot_reply = response.text.strip()

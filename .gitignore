@@ -1,2 +1,89 @@
+# Python virtual environments
 env/
-.env
+env_ov/
+venv/
+ENV/
+.env*
+*.env
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.wav
+*.mp3
+*.pth
+engines/
+temp/
+logs/
+
+# Keep OpenVoice as submodule
+!.gitmodules
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# OpenVoice specific files
+OpenVoice-main/checkpoints/
+engines/
+models/
+*.pth
+*.pt
+*.ckpt
+*.wav
+
+# Keep OpenVoice submodule configurations
+!.gitmodules
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Temporary files
+*.tmp
+temp/
+peer_elpis_ov_*/
+
+# Generated content
+output/
+downloads/
+*.mp3
+
+# Personal configuration files
+config.ini
+settings.json

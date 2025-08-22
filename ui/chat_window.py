@@ -7,24 +7,25 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon
 from .message_widget import MessageWidget
 from .avatar_widget import AvatarWidget
-from .voice_setup import VoiceSetup
+from .enhanced_voice_setup import EnhancedVoiceSetup
 from bot.llm_bot import get_bot_response
 from controllers.avatar_controller import AvatarController
-from services.tts_service import TTSSvc
+from services.voice_engine_service import VoiceEngineService
 from services.llm_service import LLMSvc
 
 USER_NAME = "Hao"
 BOT_NAME = "Elpis"
 
 class ChatApp(QWidget):
-    def __init__(self, avatar_controller: AvatarController = None, tts: TTSSvc = None, llm: LLMSvc = None):
+    def __init__(self, avatar_controller: AvatarController = None, voice_service: VoiceEngineService = None, llm: LLMSvc = None):
         super().__init__()
-        self.setWindowTitle("Chatbot App")
-        self.setGeometry(200, 200, 900, 500)
+        self.setWindowTitle("Peer Elpis - AI Chat with Voice")
+        self.setGeometry(200, 200, 1100, 700)  # Increased window size
+        self.setMinimumSize(900, 600)  # Set minimum size
         self.setStyleSheet("background-color: #f0f0f0;")
 
-        # Dependency injection with sensible defaults to keep runtime identical
-        self._tts = tts or TTSSvc()
+        # Enhanced voice service with save/load functionality
+        self._voice_service = voice_service or VoiceEngineService()
         self._llm = llm or LLMSvc()
         self._avatar_controller = avatar_controller
 
@@ -34,7 +35,7 @@ class ChatApp(QWidget):
         # Use a stacked approach: voice setup shown first, then chat UI
         self._main_layout = QHBoxLayout(self)
 
-        self._voice_setup = VoiceSetup(tts_service=self._tts)
+        self._voice_setup = EnhancedVoiceSetup(voice_service=self._voice_service)
         self._voice_setup.finished.connect(self._on_voice_setup_finished)
 
         # By default show the voice setup occupying the whole window; when done show chat layout below
@@ -180,9 +181,9 @@ class ChatApp(QWidget):
         )
 
         if sender == "bot":
-            # Use controller to speak with typing animation
+            # Use enhanced voice service with typing animation
             try:
-                self._tts.speak(text, typing_callback=self._update_bot_message)
+                self._voice_service.speak_with_voice(text, typing_callback=self._update_bot_message)
             except Exception:
                 # fallback to avatar widget speak if available
                 if hasattr(self, 'avatar_widget') and self.avatar_widget:
@@ -212,9 +213,12 @@ class ChatApp(QWidget):
     def change_volume(self, value):
         """Adjust volume and update mute button automatically."""
         volume = value / 100.0
-        # route volume change through service/controller
+        # route volume change through enhanced voice service
         try:
-            self._tts.set_volume(volume)
+            if hasattr(self._voice_service, 'set_volume'):
+                self._voice_service.set_volume(volume)
+            elif hasattr(self._voice_service, '_engine') and hasattr(self._voice_service._engine, 'set_volume'):
+                self._voice_service._engine.set_volume(volume)
         except Exception:
             if hasattr(self, 'avatar_widget') and self.avatar_widget:
                 self.avatar_widget.set_volume(volume)

@@ -1,6 +1,5 @@
 # Python virtual environments
 env/
-env_ov/
 venv/
 ENV/
 .env*
@@ -17,73 +16,62 @@ htmlcov/
 *.pyo
 *.pyd
 
-# VS Code
-.vscode/
-*.code-workspace
-
-# PyCharm
-.idea/
-
-# Temporary files
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-
-# Project specific
-*.wav
-*.mp3
-*.pth
-engines/
-temp/
-logs/
-
-# Keep OpenVoice as submodule
-!.gitmodules
-
 # Distribution / packaging
 dist/
 build/
 *.egg-info/
 
-# OpenVoice specific files
-OpenVoice-main/checkpoints/
-engines/
-models/
-*.pth
-*.pt
-*.ckpt
-*.wav
-
-# Keep OpenVoice submodule configurations
-!.gitmodules
-
-# IDE specific files
+# IDE and Editor files
 .vscode/
+*.code-workspace
 .idea/
 *.swp
 *.swo
+*~
 
 # OS specific files
 .DS_Store
 Thumbs.db
 
-# Logs and databases
+# Logs and temporary files
 *.log
-*.sqlite
-*.db
-
-# Temporary files
 *.tmp
 temp/
-peer_elpis_ov_*/
+logs/
 
-# Generated content
+# Third-party dependencies (legacy)
+third_party/
+OpenVoice-main/
+OpenVoice-main-original/
+
+# Audio files and models
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+
+# Model checkpoints and weights
+checkpoints/
+checkpoints_v2/
+*.pth
+*.pt
+*.ckpt
+
+# Generated engines and outputs
+saved_engines/
+engines/
 output/
 downloads/
-*.mp3
 
 # Personal configuration files
 config.ini
 settings.json
+.api_keys
+
+# Development and cleanup notes (internal use only)
+CLEANUP_SUMMARY.md
+
+# Test outputs and temporary data
+tests/outputs/
+tests/temp/

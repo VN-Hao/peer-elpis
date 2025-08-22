@@ -1,177 +1,185 @@
 # Peer Elpis - AI Assistant with Voice Cloning
 
-An AI assistant application that combines chat functionality with voice cloning capabilities, featuring a Live2D avatar for an interactive experience.
+An AI assistant application that combines chat functionality with advanced voice cloning capabilities using OpenVoice, featuring a Live2D avatar for an interactive experience.
 
-## Features
+## ✨ Features
 
-- 💬 Interactive Chat Interface
-- 🎙️ Voice Cloning using OpenVoice
-- 👤 Live2D Avatar Animation
-- 🔊 Text-to-Speech with Voice Customization
-- 🎭 Customizable Avatar Expression
-- 🖥️ Modern PyQt5-based UI
+- 💬 **Interactive Chat Interface** - Clean PyQt5-based chat with typing animations
+- 🎙️ **Advanced Voice Cloning** - Self-contained OpenVoice integration with two-stage synthesis
+- 👤 **Live2D Avatar** - Animated character interface with web-based rendering
+- 🔊 **Flexible TTS** - Voice customization with sample selection and engine saving
+- 🤖 **AI Integration** - Google Generative AI (Gemini) for intelligent responses
+- 💾 **Voice Engine Management** - Save and load processed voice engines
 
-## Prerequisites
+## 🚀 Quick Start
 
-- Python 3.10 or higher
-- PyQt5
-- CUDA-capable GPU (optional, for faster voice processing)
-- Windows OS (currently optimized for Windows)
-
-## Installation
-
-1. Clone the repository with submodules:
+### 1. Clone Repository
 ```bash
-# Clone the main repository
 git clone https://github.com/VN-Hao/peer-elpis.git
 cd peer-elpis
-
-# Initialize and update the OpenVoice submodule
-git submodule update --init --recursive
 ```
 
-2. Create and activate the main virtual environment:
+### 2. Install Dependencies
 ```bash
-# Create and activate main environment
+# Create virtual environment
 python -m venv env
-.\env\Scripts\activate  # On Windows
-source env/bin/activate  # On Linux/Mac
+.\env\Scripts\activate  # Windows
+source env/bin/activate  # Linux/Mac
 
-# Install main project dependencies
+# Install requirements
 pip install -r requirements.txt
 ```
 
-3. Set up OpenVoice environment (for voice cloning):
+### 3. Launch Chat Application
 ```bash
-# Create and activate OpenVoice environment
-python -m venv env_ov
-.\env_ov\Scripts\activate  # On Windows
-source env_ov/bin/activate  # On Linux/Mac
-
-# Install OpenVoice dependencies
-cd OpenVoice-main
-pip install -r requirements.txt
+python launch_chat.py
 ```
 
-4. Download required models:
-```bash
-# Create directories for models
-mkdir -p OpenVoice-main/checkpoints/base_speakers/EN
-
-# Download base models from OpenVoice releases
-# Place the following files in OpenVoice-main/checkpoints/base_speakers/EN/:
-# - config.json
-# - model.pth
-# - en_default_se.pth
-```
-
-## Configuration
-
-1. OpenVoice Setup:
-   - Download the required models from [OpenVoice Releases](https://github.com/myshell-ai/OpenVoice/releases)
-   - Required files for `OpenVoice-main/checkpoints/base_speakers/EN/`:
-     * `config.json` - Model configuration
-     * `model.pth` - Base speaker model
-     * `en_default_se.pth` - English speaker embeddings
-   - Optional: Download converter model files to `OpenVoice-main/checkpoints/converter/`
-
-2. Avatar Setup:
-   - The default Live2D avatar is included in `assets/avatar/`
-   - Custom avatars can be added to the same directory
-   - Required files structure:
-     ```
-     assets/
-     └── avatar/
-         ├── cubism4.min.js
-         ├── index.html
-         ├── live2dcubismcore.js
-         └── ANIYA/            # Default avatar
-             └── model files...
-     ```
-
-## Usage
-
-1. Start the application:
+### 4. (Optional) Run Full Application with Avatar
 ```bash
 python main.py
 ```
 
-2. First-time Setup:
-   - The application will prompt you to set up your voice preference
-   - You can either:
-     - Record a reference audio for voice cloning
-     - Select from pre-exported voice engines
-     - Use default text-to-speech
+## 📁 Project Structure
 
-3. Chat Interface:
-   - Type messages in the input field
-   - The AI will respond with both text and voice
-   - The Live2D avatar will animate during speech
+```
+peer-elpis/
+├── 📁 assets/              # UI assets and avatar files
+│   ├── avatar/             # Live2D avatar files
+│   └── icons/              # UI icons
+├── 📁 bot/                 # AI chat logic
+│   └── llm_bot.py          # Generative AI integration
+├── 📁 controllers/         # Avatar animation controllers
+├── 📁 services/            # Core business logic
+│   ├── voice_engine_service.py  # Voice processing service
+│   ├── llm_service.py      # LLM integration service
+│   └── tts_service.py      # Text-to-speech service
+├── 📁 ui/                  # PyQt5 user interface
+│   ├── chat_window.py      # Main chat interface
+│   └── enhanced_voice_setup.py  # Voice setup dialog
+├── 📁 voice/               # Voice synthesis engine
+│   ├── openvoice/          # Self-contained OpenVoice implementation
+│   ├── tts_engine.py       # Main TTS engine
+│   └── openvoice_tts.py    # OpenVoice wrapper
+├── 📁 tests/               # Test files and utilities
+│   ├── voice/              # Voice synthesis tests
+│   ├── integration/        # Integration tests
+│   └── debug/              # Debug utilities
+├── 📁 checkpoints/         # Voice model checkpoints
+│   ├── base_speakers/      # Base voice models
+│   └── converter/          # Voice conversion models
+├── 📁 saved_engines/       # Saved voice engines
+├── main.py                 # Full app with avatar
+├── launch_chat.py          # Chat-only launcher
+└── run_tests.py           # Test runner
+```
 
-4. Voice Controls:
-   - Adjust volume using the slider
-   - Mute/unmute with the speaker icon
-   - Change voice settings through the configuration panel
+## 🎙️ Voice Features
 
-## Project Structure
+### Two-Stage Voice Synthesis
+- **Base Speaker**: High-quality generic voice (5/5 quality)
+- **Voice Cloning**: Clone any voice from audio samples (3-4/5 quality)
+- **OpenVoice Integration**: Self-contained, no external dependencies
 
-- `main.py` - Application entry point
-- `bot/` - AI chat bot implementation
-- `voice/` - Voice synthesis and processing
-- `ui/` - User interface components
-- `services/` - Core services (TTS, LLM, etc.)
-- `controllers/` - Application logic
-- `assets/` - Avatar and static resources
+### Voice Engine Management
+- 💾 **Save/Load Engines**: Save processed voices for instant reuse
+- 📁 **Sample Detection**: Automatically detect sample voices in assets
+- 🎚️ **Quality Options**: High-quality mode with enhanced processing
+- 🔄 **Auto-save**: Automatically save successful voice processing
 
-## Contributing
+### Supported Audio Formats
+- Input: MP3, WAV, M4A, FLAC
+- Processing: 24kHz, 16-bit optimization
+- Output: High-quality WAV synthesis
+
+## 🧪 Testing and Development
+
+### Run Tests
+```bash
+# Run all tests
+python run_tests.py
+
+# Run specific test categories
+python run_tests.py voice        # Voice synthesis tests
+python run_tests.py integration  # Integration tests
+python run_tests.py debug        # Debug utilities
+```
+
+### Test Categories
+- **Voice Tests**: TTS engine, OpenVoice integration, quality comparison
+- **Integration Tests**: End-to-end voice and chat functionality
+- **Debug Utilities**: LLM testing, tokenization debugging, symbol analysis
+
+## ⚙️ Configuration
+
+### API Keys (Optional)
+Create a `.env` file for AI integration:
+```bash
+GOOGLE_AI_API_KEY=your_api_key_here
+```
+
+### Voice Models
+The application includes all necessary voice models. On first run, it will:
+1. Set up base speaker models automatically
+2. Create checkpoint directories
+3. Initialize the voice processing engine
+
+## 📝 Usage Guide
+
+### Chat-Only Mode
+```bash
+python launch_chat.py
+```
+- Clean chat interface
+- Voice synthesis integration
+- No avatar overhead
+
+### Full Application
+```bash
+python main.py
+```
+- Complete experience with Live2D avatar
+- Web-based animation rendering
+- Avatar expression synchronization
+
+### Voice Setup Process
+1. **Launch Application**: Either mode supports voice setup
+2. **Select Voice**: Choose from sample voices or upload your own
+3. **Process Voice**: Application processes audio with OpenVoice
+4. **Save Engine**: Save processed voice for future use
+5. **Chat with Voice**: AI responses use your selected voice
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+- **Voice not working**: Check if PyTorch/torchaudio are installed correctly
+- **Chat not responding**: Verify Google AI API key in `.env` file
+- **Import errors**: Ensure all dependencies from `requirements.txt` are installed
+- **Audio quality issues**: Try using base speaker mode for clearest quality
+
+### Development
+- All test files are in `tests/` directory organized by functionality
+- Debug utilities in `tests/debug/` help diagnose specific issues
+- Use `run_tests.py` to verify functionality after changes
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## Troubleshooting
-
-Common issues and solutions:
-
-1. Voice synthesis not working:
-   - Ensure OpenVoice models are correctly installed
-   - Check Python version compatibility
-   - Verify CUDA setup if using GPU
-
-2. Avatar not displaying:
-   - Check WebView2 installation
-   - Verify avatar assets are present
-   - Check browser console for errors
-
-3. Chat not responding:
-   - Verify network connection
-   - Check LLM service configuration
-   - Ensure proper API keys are set
-
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-### Technologies and Frameworks
-- [OpenVoice](https://github.com/myshell-ai/OpenVoice) for voice cloning technology
-- Live2D for avatar animation framework
-- PyQt team for the UI framework
+- **[OpenVoice](https://github.com/myshell-ai/OpenVoice)** - Advanced voice cloning technology
+- **Live2D** - Avatar animation framework  
+- **PyQt5** - Cross-platform GUI toolkit
+- **Google Generative AI** - Intelligent chat responses
 
-### AI Development Assistance
-This project was developed with the assistance of several state-of-the-art AI models:
-- GitHub Copilot
-- Anthropic's Claude (Sonnet)
-- OpenAI's GPT-3.5
-- OpenAI's GPT-4.1
-- OpenAI's GPT-5 Mini Preview
-
-These AI models provided code suggestions, debugging assistance, and helped shape the project's architecture.
-
-## Contact
-
-- **Author**: VN-Hao
-- **GitHub**: [VN-Hao](https://github.com/VN-Hao)
+---
+**Author**: [VN-Hao](https://github.com/VN-Hao)

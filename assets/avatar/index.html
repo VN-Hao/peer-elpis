@@ -140,6 +140,10 @@ function startApp() {
             height: Math.max(200, root.clientHeight),
     });
 
+    // Enable interaction on the stage for proper event handling
+    app.stage.interactive = true;
+    app.stage.hitArea = app.screen;
+
     // Resize renderer to match container and re-layout model
     function resizeToRoot() {
         const w = Math.max(1, root.clientWidth);
@@ -183,9 +187,37 @@ function startApp() {
             try {
                 const bounds = model.getLocalBounds();
 
-        // Read view parameter (optional). If view=upper, we crop to upper body.
-        const params = new URLSearchParams(window.location.search);
-        const viewMode = params.get('view') || '';
+    // Read view parameter (optional). If view=upper, we crop to upper body.
+    // Prefer externally injected params (window._externalViewParams) when available so
+    // the host (PyQt) can centrally control the layout math. Otherwise fall back to URL params.
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewMode = (window._externalViewParams && window._externalViewParams.view) || urlParams.get('view') || '';
+    // Optional zoom and pan parameters (passed from the app to initialize chat view)
+    let initZoom = null;
+    let initPanX = 0;
+    let initPanY = 0;
+    let previewScaleX = null;
+    let previewScaleY = null;
+
+    if (window._externalViewParams) {
+        try {
+            initZoom = parseFloat(window._externalViewParams.zoom) || null;
+            initPanX = parseFloat(window._externalViewParams.pan_x) || 0;
+            initPanY = parseFloat(window._externalViewParams.pan_y) || 0;
+            previewScaleX = parseFloat(window._externalViewParams.previewScaleX) || null;
+            previewScaleY = parseFloat(window._externalViewParams.previewScaleY) || null;
+            // Log external params for debugging
+            try { console.log('EXTERNAL_VIEW_PARAMS:', window._externalViewParams); } catch(e){}
+        } catch (e) {
+            console.warn('Failed parsing externalViewParams', e);
+        }
+    } else {
+        initZoom = parseFloat(urlParams.get('zoom')) || null;
+        initPanX = parseFloat(urlParams.get('pan_x')) || 0;
+        initPanY = parseFloat(urlParams.get('pan_y')) || 0;
+        previewScaleX = parseFloat(urlParams.get('previewScaleX')) || null;
+        previewScaleY = parseFloat(urlParams.get('previewScaleY')) || null;
+    }
 
                 // Desired fraction of canvas height the model should occupy (tweak as needed)
                 // For upper-body view we want a tighter crop so head+chest fill the area.
@@ -204,7 +236,12 @@ function startApp() {
 
                 // Aggressive extra zoom for upper view on small canvases so face and lips are clearly visible
                 const extraZoom = (viewMode === 'upper') ? (isSmallCanvas ? 1.65 : 1.35) : 1.0;
-                const newScale = Math.abs(baseScale * extraZoom);
+                let newScale = Math.abs(baseScale * extraZoom);
+                // If the caller supplied an initZoom, multiply the computed scale by it.
+                if (initZoom) {
+                    newScale = newScale * initZoom;
+                    console.log('Applying initial zoom from params:', initZoom);
+                }
                 model.scale.set(newScale, newScale);
 
                 // Choose pivot so the face area sits above model center.
@@ -217,7 +254,176 @@ function startApp() {
                 // Position model at canvas center with a nudge so chest sits lower and face is centered
                 // Reduce the small-canvas nudge so the model moves upward (face more centered/visible)
                 const yNudgeFactor = (viewMode === 'upper') ? (isSmallCanvas ? 0.56 : 0.60) : 0.48;
-                model.position.set(app.renderer.width / 2, app.renderer.height * yNudgeFactor);
+                // Base position centered
+                const basePosX = app.renderer.width / 2;
+                const basePosY = app.renderer.height * yNudgeFactor;
+                let appliedPanX = initPanX;
+                let appliedPanY = initPanY;
+                // If preview scale was provided, compute scale ratio and transform pan offsets
+                try {
+                    if (previewScaleX && previewScaleY) {
+                        const chatScale = newScale;
+                        const previewScale = Math.abs(previewScaleX);
+                        const ratio = (previewScale !== 0) ? (chatScale / previewScale) : 1.0;
+                        appliedPanX = initPanX * ratio;
+                        appliedPanY = initPanY * ratio;
+                        console.log('Transformed pan using scale ratio:', ratio, 'appliedPan:', appliedPanX, appliedPanY, 'chatScale', chatScale, 'previewScale', previewScale);
+                    }
+                } catch(e) { console.warn('Error transforming pan offsets', e); }
+                // If the host provided explicit preview center coordinates (pixel coords), use them.
+                // Otherwise, if preview root size and previewScale are available, compute a pivot-aware mapping
+                // by calculating the preview's base position and mapping the preview center to the chat center
+                // using the ratio between chatScale and previewScale.
+                const previewCenterX_param = (window._externalViewParams && window._externalViewParams.previewCenterX) || urlParams.get('previewCenterX');
+                const previewCenterY_param = (window._externalViewParams && window._externalViewParams.previewCenterY) || urlParams.get('previewCenterY');
+                const previewRootW_param = (window._externalViewParams && window._externalViewParams.previewRootWidth) || urlParams.get('previewRootWidth');
+                const previewRootH_param = (window._externalViewParams && window._externalViewParams.previewRootHeight) || urlParams.get('previewRootHeight');
+
+                if (previewCenterX_param && previewCenterY_param) {
+                    try {
+                        model.position.set(parseFloat(previewCenterX_param), parseFloat(previewCenterY_param));
+                        console.log('Applied preview center coords directly:', previewCenterX_param, previewCenterY_param);
+                    } catch(e) { console.warn('Failed to apply preview center coords', e); }
+                } else if (previewRootW_param && previewRootH_param && previewScaleX) {
+                    try {
+                        // Parse preview root dims
+                        const pW = parseFloat(previewRootW_param);
+                        const pH = parseFloat(previewRootH_param);
+                        const previewIsSmall = Math.min(pW, pH) < 420;
+                        // Determine preview y-nudge factor using same heuristics as chat
+                        const previewYNudge = (viewMode === 'upper') ? (previewIsSmall ? 0.56 : 0.60) : 0.48;
+                        // Compute preview base position (where the model would be centered without pan)
+                        const previewBaseX = pW / 2.0;
+                        const previewBaseY = pH * previewYNudge;
+
+                        // Desired preview center in preview pixels
+                        const desiredPreviewCenterX = previewBaseX + initPanX;
+                        const desiredPreviewCenterY = previewBaseY + initPanY;
+
+                        // Convert delta from preview base into chat space by scaling with chatScale/previewScale
+                        const previewScale = Math.abs(previewScaleX);
+                        const ratioX = (previewScale !== 0) ? (newScale / previewScale) : 1.0;
+                        const ratioY = (previewScale !== 0) ? (newScale / previewScale) : 1.0;
+
+                        const deltaX = desiredPreviewCenterX - previewBaseX;
+                        const deltaY = desiredPreviewCenterY - previewBaseY;
+
+                        const chatCenterX = basePosX + deltaX * ratioX;
+                        const chatCenterY = basePosY + deltaY * ratioY;
+
+                        model.position.set(chatCenterX, chatCenterY);
+                        console.log('Mapped preview center -> chat center using scale ratio:', {previewBaseX, previewBaseY, desiredPreviewCenterX, desiredPreviewCenterY, ratioX, ratioY, chatCenterX, chatCenterY});
+                    } catch(e) {
+                        console.warn('Failed to map preview center to chat - falling back to pan mapping', e);
+                        model.position.set(basePosX + appliedPanX, basePosY + appliedPanY);
+                    }
+                } else {
+                    model.position.set(basePosX + appliedPanX, basePosY + appliedPanY);
+                    if (initPanX || initPanY) {
+                        console.log('Applying initial pan from URL params (transformed if previewScale provided):', appliedPanX, appliedPanY);
+                    }
+                }
+
+                // Always log computed layout internals so host can compare preview vs chat
+                try {
+                    // Save a machine-readable debug object so the host can query it via runJavaScript
+                    window.__lastLayoutDebug = {
+                        viewMode: viewMode,
+                        isSmallCanvas: isSmallCanvas,
+                        rendererWidth: app.renderer.width,
+                        rendererHeight: app.renderer.height,
+                        bounds: { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height },
+                        baseScale: baseScale,
+                        extraZoom: extraZoom,
+                        newScale: newScale,
+                        pivotX: pivotX,
+                        pivotY: pivotY,
+                        basePosX: basePosX,
+                        basePosY: basePosY,
+                        appliedPanX: appliedPanX,
+                        appliedPanY: appliedPanY,
+                        previewScaleX: previewScaleX,
+                        previewScaleY: previewScaleY
+                    };
+                    console.log('LAYOUT_DEBUG', window.__lastLayoutDebug);
+                } catch(e) { console.warn('Failed to log layout debug', e); }
+
+                // Debug visual overlay: when ?debug=1 in URL or externalDebug flag set, draw boxes
+                try {
+                    const showDebug = urlParams.get('debug') === '1' || (window._externalViewParams && window._externalViewParams.debug === true);
+                    if (showDebug) {
+                        // Ensure overlay container exists and attach to body to guarantee visibility in small embeds
+                        let overlay = document.getElementById('__avatar_debug_overlay');
+                        if (!overlay) {
+                            overlay = document.createElement('div');
+                            overlay.id = '__avatar_debug_overlay';
+                            overlay.style.position = 'absolute';
+                            overlay.style.pointerEvents = 'none';
+                            overlay.style.left = (document.body.getBoundingClientRect().left || 0) + 'px';
+                            overlay.style.top = (document.body.getBoundingClientRect().top || 0) + 'px';
+                            overlay.style.width = (app.renderer ? app.renderer.width : window.innerWidth) + 'px';
+                            overlay.style.height = (app.renderer ? app.renderer.height : window.innerHeight) + 'px';
+                            overlay.style.zIndex = '9999';
+                            // Make overlay visually prominent
+                            overlay.style.pointerEvents = 'none';
+                            overlay.style.mixBlendMode = 'normal';
+                            document.body.appendChild(overlay);
+                        }
+                        overlay.innerHTML = '';
+
+                        // Convert model local bounds to screen coords
+                        const mat = model.transform.worldTransform;
+                        const corners = [
+                            {x: bounds.x, y: bounds.y},
+                            {x: bounds.x + bounds.width, y: bounds.y},
+                            {x: bounds.x + bounds.width, y: bounds.y + bounds.height},
+                            {x: bounds.x, y: bounds.y + bounds.height}
+                        ].map(p => {
+                            return model.toGlobal(new PIXI.Point(p.x, p.y));
+                        });
+
+                        // Bounding box div
+                        const minX = Math.min(...corners.map(c=>c.x));
+                        const maxX = Math.max(...corners.map(c=>c.x));
+                        const minY = Math.min(...corners.map(c=>c.y));
+                        const maxY = Math.max(...corners.map(c=>c.y));
+
+                        const box = document.createElement('div');
+                        box.style.position = 'absolute';
+                        box.style.left = Math.round(minX) + 'px';
+                        box.style.top = Math.round(minY) + 'px';
+                        box.style.width = Math.max(1, Math.round(maxX - minX)) + 'px';
+                        box.style.height = Math.max(1, Math.round(maxY - minY)) + 'px';
+                        box.style.border = '2px dashed rgba(255,0,0,0.9)';
+                        box.style.background = 'rgba(255,0,0,0.06)';
+                        overlay.appendChild(box);
+
+                        // Pivot marker
+                        const pivotGlobal = model.toGlobal(new PIXI.Point(pivotX, pivotY));
+                        const dot = document.createElement('div');
+                        dot.style.position = 'absolute';
+                        dot.style.left = Math.round(pivotGlobal.x - 6) + 'px';
+                        dot.style.top = Math.round(pivotGlobal.y - 6) + 'px';
+                        dot.style.width = '12px';
+                        dot.style.height = '12px';
+                        dot.style.borderRadius = '6px';
+                        dot.style.background = 'rgba(0,0,255,0.9)';
+                        overlay.appendChild(dot);
+
+                        // Center marker (target position)
+                        const center = document.createElement('div');
+                        center.style.position = 'absolute';
+                        center.style.left = Math.round(basePosX + appliedPanX - 6) + 'px';
+                        center.style.top = Math.round(basePosY + appliedPanY - 6) + 'px';
+                        center.style.width = '12px';
+                        center.style.height = '12px';
+                        center.style.borderRadius = '6px';
+                        center.style.background = 'rgba(0,255,0,0.9)';
+                        overlay.appendChild(center);
+
+                        console.log('DEBUG overlay: bounds', {minX, minY, w: Math.round(maxX-minX), h: Math.round(maxY-minY)}, 'pivot', pivotGlobal, 'center', {x: basePosX+appliedPanX, y: basePosY+appliedPanY});
+                    }
+                } catch(e) { console.warn('Failed to draw debug overlay', e); }
             } catch (e) {
                 console.warn('layoutModel error', e);
             }
@@ -237,6 +443,9 @@ function startApp() {
             window._avatarLayoutTimeout = setTimeout(() => layoutModel(), 80);
         }
         window.addEventListener('resize', onResize);
+
+        // Mouse tracking completely disabled - no need for mouse leave detection
+        console.log('✅ Live2D mouse tracking permanently disabled for chatbot use');
   }).catch(err => console.error("Failed to load model:", err));
 
   // Lip-sync stub

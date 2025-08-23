@@ -1,3 +1,5 @@
+.gitignore
+
 # Python virtual environments
 env/
 venv/
@@ -40,7 +42,7 @@ temp/
 logs/
 
 # Third-party dependencies (legacy)
-third_party/
+references/
 OpenVoice-main/
 OpenVoice-main-original/
 

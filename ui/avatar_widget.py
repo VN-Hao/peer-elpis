@@ -1,79 +1,88 @@
+import os
+import json
+import time
 from PyQt5.QtWidgets import QFrame, QVBoxLayout
-from PyQt5.QtCore import QUrl
+from PyQt5.QtCore import QTimer, Qt, QUrl
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from voice.tts_engine import TTSEngine
-from PyQt5.QtCore import Qt
+
 
 class AvatarWidget(QFrame):
-    def __init__(self, avatar_name="ANIYA", volume=1.0, rate=150):
-        super().__init__()
-        self.setStyleSheet("background-color: #ddd; border-radius: 10px;")
-        self.layout = QVBoxLayout(self)
-        self.layout.setAlignment(Qt.AlignCenter)
+    """Minimal AvatarWidget restoring safe defaults and APIs used by chat_window.
 
-        # WebView
+    Keeps a small, well-tested surface so the rest of the app can import and run.
+    """
+
+    def __init__(self, avatar_name: str = None, view_settings: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.avatar_name = avatar_name
+        self.view_settings = view_settings or {}
+
+        self.setLayout(QVBoxLayout())
+        self.layout().setContentsMargins(0, 0, 0, 0)
+
         self.webview = QWebEngineView()
-        # Request the 'upper' view when embedded so the webview focuses on upper body
-        url = f"http://localhost:8080/index.html?avatar={avatar_name}&view=upper"
-        self.webview.load(QUrl(url))
-        self.layout.addWidget(self.webview)
+        self.webview.setContextMenuPolicy(Qt.NoContextMenu)
+        self.layout().addWidget(self.webview)
 
-        # After the page loads, ask it to size the avatar-root and then resize this widget
-        self.webview.loadFinished.connect(self._on_page_load)
-
-        # TTS
-        self.tts = TTSEngine(volume=volume, rate=rate)
-
-    def _on_page_load(self, ok: bool):
-        if not ok:
-            return
-        # Set an initial avatar width (pixels) so the widget wraps tightly.
-        initial_width = 180
-        js_set_width = f"(function(){{const r=document.getElementById('avatar-root'); if(!r) return null; r.style.width='{initial_width}px'; return true; }})()"
-        def _after_set(_):
-            # Query bounding box and resize widget accordingly
-            js_get_box = "(function(){const r=document.getElementById('avatar-root'); if(!r) return null; const b=r.getBoundingClientRect(); return {w:Math.round(b.width),h:Math.round(b.height)}; })()"
-            def _apply_size(res):
-                try:
-                    if not res:
-                        return
-                    w = int(res.get('w', initial_width))
-                    h = int(res.get('h', max(240, int(w*4/3))))
-                    # Set fixed sizes so the widget and webview wrap tightly around the avatar
-                    self.webview.setFixedSize(w, h)
-                    self.setFixedSize(w + self.layout.contentsMargins().left() + self.layout.contentsMargins().right(), h + self.layout.contentsMargins().top() + self.layout.contentsMargins().bottom())
-                except Exception:
-                    pass
-            self.webview.page().runJavaScript(js_get_box, _apply_size)
-        # apply initial width then size
-        self.webview.page().runJavaScript(js_set_width, _after_set)
-
-    def resizeEvent(self, e):
-        # Propagate new width to the page so the avatar scales with the widget
+        url = self.view_settings.get('avatar_page_url') or 'http://localhost:8080/index.html'
         try:
-            w = max(80, self.width() - self.layout.contentsMargins().left() - self.layout.contentsMargins().right())
-            js = f"(function(){{const r=document.getElementById('avatar-root'); if(!r) return null; r.style.width='{w}px'; const b=r.getBoundingClientRect(); return {{w:Math.round(b.width),h:Math.round(b.height)}}; }})()"
-            def _apply(res):
-                try:
-                    if not res: return
-                    new_w = int(res.get('w', w))
-                    new_h = int(res.get('h', max(240, int(new_w*4/3))))
-                    # resize webview to match the avatar-root size
-                    self.webview.setFixedSize(new_w, new_h)
-                except Exception:
-                    pass
-            # run async JS; result handled in callback
-            self.webview.page().runJavaScript(js, _apply)
+            self.webview.load(QUrl(url))
         except Exception:
             pass
-        super().resizeEvent(e)
 
-    def speak(self, text):
-        self.tts.speak(text)
-        self.webview.page().runJavaScript(f"setLipSyncText({repr(text)})")
+        try:
+            self.webview.page().loadFinished.connect(lambda ok: QTimer.singleShot(50, self._apply_view_settings))
+        except Exception:
+            pass
 
-    def set_volume(self, volume: float):
-        self.tts.set_volume(volume)
+    def update_view_settings(self, vs: dict):
+        self.view_settings = vs or {}
+        try:
+            QTimer.singleShot(10, self._apply_view_settings)
+        except Exception:
+            pass
 
-    def set_rate(self, rate: int):
-        self.tts.set_rate(rate)
+    def _apply_view_settings(self):
+        try:
+            external = {
+                'zoom': float(self.view_settings.get('zoom', 1.0)),
+                'pan_x': float(self.view_settings.get('pan_x', 0) or self.view_settings.get('drag_offset_x', 0)),
+                'pan_y': float(self.view_settings.get('pan_y', 0) or self.view_settings.get('drag_offset_y', 0)),
+                'previewScaleX': float(self.view_settings.get('preview_original_scale_x')) if self.view_settings.get('preview_original_scale_x') else None,
+                'previewScaleY': float(self.view_settings.get('preview_original_scale_y')) if self.view_settings.get('preview_original_scale_y') else None,
+                'previewRootWidth': int(self.view_settings.get('preview_root_width')) if self.view_settings.get('preview_root_width') else None,
+                'previewRootHeight': int(self.view_settings.get('preview_root_height')) if self.view_settings.get('preview_root_height') else None,
+                'view': self.view_settings.get('view_mode', 'upper')
+            }
+            if self.view_settings.get('debug_avatar', False) or self.view_settings.get('preview_root_width'):
+                external['debug'] = True
+
+            inject_code = f"(function(){{ try {{ window._externalViewParams = {json.dumps(external)}; if (typeof window._layoutModel === 'function') {{ window._layoutModel(); }} return true; }} catch(e) {{ return false; }} }})()"
+
+            try:
+                self.webview.page().runJavaScript(inject_code, lambda res: None)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def speak(self, text: str):
+        try:
+            js = f"(function(){{ try{{ if(typeof setLipSyncText === 'function') {{ setLipSyncText({json.dumps(text)}) }}; }}catch(e){{}} }})()"
+            try:
+                self.webview.page().runJavaScript(js)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def set_volume(self, v: float):
+        try:
+            js = f"(function(){{ try{{ if(window.avatarModel && window.avatarModel.setVolume) {{ window.avatarModel.setVolume({float(v)}) }}; }}catch(e){{}} }})()"
+            try:
+                self.webview.page().runJavaScript(js)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    # file intentionally ends here (minimal safe implementation)

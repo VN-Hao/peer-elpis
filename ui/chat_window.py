@@ -1,17 +1,19 @@
 import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame,
-    QLineEdit, QPushButton, QLabel, QSlider, QSizePolicy, QSplitter
+    QLineEdit, QPushButton, QLabel, QSlider, QSizePolicy, QSplitter, QComboBox
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon
 from .message_widget import MessageWidget
 from .avatar_widget import AvatarWidget
 from .enhanced_voice_setup import EnhancedVoiceSetup
+from .avatar_view_control import AvatarViewControl
 from bot.llm_bot import get_bot_response
 from controllers.avatar_controller import AvatarController
 from services.voice_engine_service import VoiceEngineService
 from services.llm_service import LLMSvc
+from config.avatar_config import avatar_config
 
 USER_NAME = "Hao"
 BOT_NAME = "Elpis"
@@ -28,29 +30,65 @@ class ChatApp(QWidget):
         self._voice_service = voice_service or VoiceEngineService()
         self._llm = llm or LLMSvc()
         self._avatar_controller = avatar_controller
+        
+        # Avatar configuration
+        self.selected_avatar = avatar_config.get_default_avatar()
+        
+        # Avatar view settings
+        self._avatar_view_settings = None
 
         self.setup_ui()
 
     def setup_ui(self):
-        # Use a stacked approach: voice setup shown first, then chat UI
+        # Use a stacked approach: voice setup shown first, then avatar view control, then chat UI
         self._main_layout = QHBoxLayout(self)
 
         self._voice_setup = EnhancedVoiceSetup(voice_service=self._voice_service)
         self._voice_setup.finished.connect(self._on_voice_setup_finished)
 
-        # By default show the voice setup occupying the whole window; when done show chat layout below
+        # By default show the voice setup occupying the whole window
         self._main_layout.addWidget(self._voice_setup)
 
     def _on_voice_setup_finished(self, ok: bool):
-        """Called when VoiceSetup signals finished; replace setup UI with the chat UI."""
+        """Called when VoiceSetup signals finished; show avatar view control next."""
         if not ok:
             return
         try:
-            # remove the setup widget
+            # remove the voice setup widget
             self._voice_setup.setParent(None)
         except Exception:
             pass
-        # build the main chat UI into the stored layout
+        # Show avatar view control next
+        self._show_avatar_view_control()
+    
+    def _show_avatar_view_control(self):
+        """Show the avatar view control interface."""
+        self._avatar_view_control = AvatarViewControl(avatar_name=self.selected_avatar)
+        self._avatar_view_control.view_setup_complete.connect(self._on_avatar_view_finished)
+        
+        # Add to main layout
+        self._main_layout.addWidget(self._avatar_view_control)
+    
+    def _on_avatar_view_finished(self):
+        """Called when avatar view control is finished; show chat UI."""
+        try:
+            # Store the avatar view settings from the control, always use latest
+            self._avatar_view_settings = self._avatar_view_control.get_view_settings()
+            print(f"🎯 Avatar view settings for chat: {self._avatar_view_settings}")  # Debug
+            # Update selected avatar if changed in settings
+            if self._avatar_view_settings and 'avatar_name' in self._avatar_view_settings:
+                self.selected_avatar = self._avatar_view_settings['avatar_name']
+                print(f"🔄 Updated selected avatar to: {self.selected_avatar}")
+            # Update window title with chatbot name
+            if self._avatar_view_settings and 'chatbot_name' in self._avatar_view_settings:
+                chatbot_name = self._avatar_view_settings['chatbot_name']
+                self.setWindowTitle(f"Peer Elpis - Chat with {chatbot_name}")
+                print(f"🏷️ Updated window title with chatbot name: {chatbot_name}")
+            # Remove the avatar view control widget
+            self._avatar_view_control.setParent(None)
+        except Exception as e:
+            print(f"Error in avatar view sync: {e}")
+        # Build the main chat UI
         self._build_chat_ui()
 
     def _build_chat_ui(self):
@@ -110,11 +148,20 @@ class ChatApp(QWidget):
         # Avatar (keep natural size)
         # If an external AvatarController wasn't provided, create one from AvatarWidget
         if self._avatar_controller is None:
-            self.avatar_widget = AvatarWidget(avatar_name="ANIYA")
+            # Get avatar name from settings (if customized) or use selected avatar
+            avatar_name_to_use = self.selected_avatar
+            if self._avatar_view_settings and 'avatar_name' in self._avatar_view_settings:
+                avatar_name_to_use = self._avatar_view_settings['avatar_name']
+                
+            print(f"🎭 Creating avatar widget with: {avatar_name_to_use}")
+            self.avatar_widget = AvatarWidget(avatar_name=avatar_name_to_use, view_settings=self._avatar_view_settings)
             self._avatar_controller = AvatarController(self.avatar_widget)
         else:
             # extract widget for layouting if controller wraps one
             self.avatar_widget = getattr(self._avatar_controller, 'avatar_widget', None)
+            # Apply view settings if available
+            if self.avatar_widget and self._avatar_view_settings:
+                self.avatar_widget.update_view_settings(self._avatar_view_settings)
 
         if self.avatar_widget is not None:
             self.avatar_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)

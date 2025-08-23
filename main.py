@@ -15,13 +15,18 @@ import sys
 import threading
 import os
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from functools import partial
 from PyQt5.QtCore import Qt, QCoreApplication
 from PyQt5.QtWidgets import QApplication
 def start_local_server():
     # Serve the 'assets/avatars' folder
     avatars_path = os.path.join(os.path.dirname(__file__), "assets", "avatar")
-    os.chdir(avatars_path)
-    server = HTTPServer(("localhost", 8080), SimpleHTTPRequestHandler)
+    # Do not change the process working directory; instead let the HTTP handler
+    # serve files from the specific assets/avatar directory. This prevents side
+    # effects where other parts of the app write logs relative to the CWD and
+    # end up under assets/avatar/logs.
+    handler = partial(SimpleHTTPRequestHandler, directory=avatars_path)
+    server = HTTPServer(("localhost", 8080), handler)
     print("Starting local HTTP server at http://localhost:8080")
     server.serve_forever()
 
